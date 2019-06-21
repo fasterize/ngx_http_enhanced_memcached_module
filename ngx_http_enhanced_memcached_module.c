@@ -39,6 +39,11 @@ typedef enum ngx_http_enhanced_memcached_key_status_e {
   READY
 } ngx_http_enhanced_memcached_key_status_t;
 
+typedef enum ngx_http_enhanced_memcached_header_status_e {
+  TO_START,
+  STARTED
+} ngx_http_enhanced_memcached_header_status_t;
+
 typedef struct {
     size_t                     rest;
     ngx_http_request_t        *request;
@@ -46,6 +51,7 @@ typedef struct {
     u_char                    *end;
     size_t                     end_len;
     ngx_http_enhanced_memcached_key_status_t key_status;
+    ngx_http_enhanced_memcached_header_status_t header_status;
     ngx_str_t                  namespace_key;
     ngx_str_t                  namespace_value;
     ngx_int_t                 (*when_key_ready)(ngx_http_request_t *r);
@@ -268,6 +274,7 @@ ngx_http_enhanced_memcached_handler(ngx_http_request_t *r)
     read_body = 0;
     set_default_content_type = 1;
 
+    ctx->header_status = TO_START;
     if (mlcf->flush) {
       ctx->rest = ctx->end_len = NGX_HTTP_ENHANCED_MEMCACHED_CRLF;
       ctx->end = ngx_http_enhanced_memcached_crlf;
@@ -1090,6 +1097,12 @@ ngx_http_enhanced_memcached_process_request_get(ngx_http_request_t *r)
 
     u = r->upstream;
 
+    if (ctx->header_status == STARTED) {
+      ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                     "enhanced memcached: continuing header parsing");
+      goto parse_headers;
+    }
+
     for (p = u->buffer.pos; p < u->buffer.last; p++) {
         if (*p == LF) {
             goto found;
@@ -1182,7 +1195,9 @@ length:
           if (u->headers_in.content_length_n == 0) {
             return NGX_HTTP_UPSTREAM_INVALID_HEADER;
           }
+          ctx->header_status = STARTED;
 
+parse_headers:
           umcf = ngx_http_get_module_main_conf(r, ngx_http_upstream_module);
 
           while (1) {
@@ -1347,9 +1362,10 @@ length:
             }
 
             if (rc == NGX_AGAIN) {
-              ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                      "enhanced memcached: manage http headers on multiple process_header call is not implemented");
-              return NGX_HTTP_UPSTREAM_INVALID_HEADER;
+              u->headers_in.content_length_n -= u->buffer.pos - p;
+              ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                             "enhanced memcached: headers were not complete, need more data");
+              return rc;
             }
 
             /* there was error while a header line parsing */

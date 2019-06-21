@@ -22,8 +22,8 @@ class Simple < Test::Unit::TestCase
   end
 
   def test_simple
-  	put '/toto', 'this content', @put_domain
-  	assert_stored
+    put '/toto', 'this content', @put_domain
+    assert_stored
     get '/toto', @std_domain
     assert_last_response "200", "application/octet-stream", 'this content'
     assert_not_nil @resp['Date']
@@ -67,6 +67,18 @@ class Simple < Test::Unit::TestCase
     assert_equal Digest::SHA1.hexdigest(@resp.body), '15ad4ab1b2b651cfd04aa83ae251a5ff06e2bf05'
     assert_equal nil, @resp['Content-Encoding']
     assert_not_nil @resp['Date']
+  end
+
+  def test_big_header
+    png = load_bin_file('show_48.png')
+    assert_equal Digest::SHA1.hexdigest(png), '15ad4ab1b2b651cfd04aa83ae251a5ff06e2bf05'
+    junk = (0...(75*1024)).map { 65.+(rand(25)).chr }.join
+    put '/png', "EXTRACT_HEADERS\r\nContent-Type: image/png\r\nx-junk: #{junk}\r\n\r\n" + png, @put_domain
+    assert_stored
+    get '/png', @std_domain
+    assert_equal @resp['x-junk'], junk
+    assert_last_response "200", "image/png", png
+    assert_equal Digest::SHA1.hexdigest(@resp.body), '15ad4ab1b2b651cfd04aa83ae251a5ff06e2bf05'
   end
 
   def test_serve_static
